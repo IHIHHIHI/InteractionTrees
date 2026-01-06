@@ -116,8 +116,18 @@ Lemma interp_write_one F (handle_io : forall R, ioE R -> itree F R)
      handle_io _ (Output (xs ++ [1]))).
 Proof.
   unfold write_one.
-  (* Use lemmas from [ITree.Simple] ([theories/Simple.v]). *)
-  (* FILL IN HERE *) Admitted.
+  rewrite interp_bind.
+  rewrite interp_trigger.
+  (* setoid_rewrite interp_trigger. 일반적인 (=) 관계가 아니어서, setoid_rewrite를 써야 한다! 
+  아래처럼 apply 해도 되긴 한다.
+  reflexivity. *)
+  apply eutt_bind.
+  {
+    reflexivity.
+  }
+  intros l.
+  rewrite interp_trigger. reflexivity.
+Qed.
 
 (** An [itree void1] is a computation which can either return a value,
     or loop infinitely. Since Coq is total, [interpreted_write_one]
@@ -224,7 +234,16 @@ Lemma unfold_factorial : forall x,
 Proof.
   intros x.
   unfold factorial.
-  (* FILL IN HERE *) Admitted.
+  setoid_rewrite rec_as_interp.
+  unfold recursive. 
+  rewrite unfold_interp.
+  unfold fact_body at 2. 
+  destruct x;try reflexivity.
+  simpl. apply eutt_bind;try reflexivity. 
+  intros n. 
+  tau_steps.
+  reflexivity.
+Qed. 
 
 (** We can prove that the ITrees version [factorial] is "equivalent"
     to the [factorial_spec] version.  The proof goes by induction on
@@ -240,7 +259,19 @@ Lemma factorial_correct : forall n,
     factorial n ≈ Ret (factorial_spec n).
 Proof.
   intros n.
-  (* FILL IN HERE *) Admitted.
+  induction n. 
+  {
+    (* tau_steps. *)
+    simpl. unfold factorial. setoid_rewrite rec_as_interp. 
+    rewrite unfold_interp. unfold fact_body at 2. 
+    simpl. 
+    reflexivity.
+  }
+  {
+    rewrite unfold_factorial. rewrite IHn.
+    rewrite bind_ret. simpl. reflexivity.
+  }
+Qed.
 
 (** ** Fibonacci *)
 
@@ -258,16 +289,24 @@ Fixpoint fib_spec (n : nat) : nat :=
     end
   end.
 
-Definition fib_body : nat -> itree (callE nat nat +' E) nat
-  (* REPLACE THIS LINE WITH ":= _your_definition_ ." *). Admitted.
+Definition fib_body (n : nat) : itree (callE nat nat +' E) nat :=
+  match n with
+  | 0 => Ret 0
+  | S n' =>
+    match n' with 
+    | 0 => Ret 1 
+    | S n'' => y <- call n' ;; z <- call n'' ;; Ret (y + z)
+    end
+  end.
 
 Definition fib n : itree E nat :=
   rec fib_body n.
 
 Example fib_3_6 : mapT fib [4;5;6] ≈ Ret [3; 5; 8].
 Proof.
-  (* Use [tau_steps] to compute. *)
-  (* FILL IN HERE *) Admitted.
+  tau_steps. 
+  reflexivity.
+Qed.
 
 (** Since fib uses two recursive calls, we need to strengthen the
     induction hypothesis.  One way to do that is to prove the
@@ -289,11 +328,20 @@ Proof.
   induction n as [ | n' IH ]; intros.
   - (* n = 0 *)
     apply Nat.le_0_r in H. subst m.
-    (* FILL IN HERE *) admit.
+    tau_steps. reflexivity.
   - (* n = S n' *)
     apply Nat.le_succ_r in H.
-    (* FILL IN HERE *) admit.
-(* FILL IN HERE *) Admitted.
+    destruct H;auto. 
+    subst. 
+    rewrite rec_as_interp. unfold fib_body at 2. 
+    rewrite unfold_interp. simpl. 
+    destruct n';try reflexivity. 
+    simpl. rewrite IH;try lia. 
+    rewrite bind_ret. tau_steps. 
+    rewrite bind_ret. rewrite interp_bind. rewrite interp_recursive_call.
+    rewrite IH;try lia. rewrite bind_ret. rewrite interp_ret. 
+    apply eutt_ret. lia.
+Qed.
 
 (** ** Logarithm *)
 
@@ -306,12 +354,19 @@ Proof.
     (Note that this only constrains a very small subset of inputs,
     and in fact our solution diverges for some of them.)
  *)
-Definition log (b : nat) : nat -> itree E nat
-  (* REPLACE THIS LINE WITH ":= _your_definition_ ." *). Admitted.
+Definition log_body (b x : nat) : itree (callE nat nat +' E) nat := 
+    if x <=? 1 
+    then Ret 0 
+    else (y <- call (x / b) ;; Ret (1 + y)).
+
+Definition log (b x : nat) : itree E nat :=
+  rec (log_body b) x.
 
 Example log_2_64 : log 2 (2 ^ 6) ≈ Ret 6.
 Proof.
-  (* FILL IN HERE *) Admitted.
+  tau_steps.
+  reflexivity.
+Qed.
 
 (** These lemmas take care of the boring arithmetic. *)
 Lemma log_correct_helper :
@@ -335,4 +390,20 @@ Qed.
 Lemma log_correct : forall b y, 1 < b -> log b (b ^ y) ≈ Ret y.
 Proof.
   intros b y H.
-  (* FILL IN HERE *) Admitted.
+  revert b H. 
+  induction y;intros. 
+  {
+    tau_steps. reflexivity.
+  }
+  {
+    simpl.
+    unfold log.
+    rewrite rec_as_interp. 
+    unfold log_body at 2. 
+    rewrite log_correct_helper;auto.
+    rewrite interp_bind. rewrite interp_recursive_call.
+    unfold log in IHy. rewrite log_correct_helper2;auto. 
+    rewrite IHy;auto. rewrite bind_ret. simpl. 
+    rewrite interp_ret. reflexivity.
+  }
+Qed.
